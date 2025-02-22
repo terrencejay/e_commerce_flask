@@ -5,6 +5,7 @@ from marshmallow import fields, ValidationError
 from mysql.connector import Error
 import mysql.connector
 
+
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://root:Password123!@localhost/Store'
 db = SQLAlchemy(app)
@@ -37,6 +38,9 @@ class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('Customer.id'))
     products = db.relationship('Product', secondary=order_products, backref=db.backref('orders', lazy='dynamic'))
+    
+
+
 
 class Product(db.Model):
     __tablename__ = 'Products'
@@ -44,20 +48,19 @@ class Product(db.Model):
     name = db.Column(db.String(255), nullable=False)
     price = db.Column(db.Float, nullable=False)
 
-class CustomerSchema(ma.SQLAlchemyAutoSchema):
+
+class CustomerSchema(ma.Schema):
     class Meta:
-        model = Customer
-        include_fk = True
+        fields = ("id", "name", "age", "phone_number", "email")
     orders = ma.Nested('OrderSchema', many=True)
 
-class ProductSchema(ma.SQLAlchemyAutoSchema):
+class ProductSchema(ma.Schema):
     class Meta:
-        model = Product
+        fields = ('id', 'name', 'price')
 
-class OrderSchema(ma.SQLAlchemyAutoSchema):
+class OrderSchema(ma.Schema):
     class Meta:
-        model = Order
-        include_fk = True
+        fields = ('id', 'customer_id')  # Add other order details as needed
     products = ma.Nested('ProductSchema', many=True)
 
 customer_schema = CustomerSchema()
@@ -67,24 +70,26 @@ products_schema = ProductSchema(many=True)
 order_schema = OrderSchema()
 orders_schema = OrderSchema(many=True)
 
+
 @app.route("/")
 def home():
-    return "Welcome to my store application"
+    return "welcome to my store application"
 
 @app.route("/customer", methods=["POST"])
 def new_customer():
     try:
         data = request.get_json()
-        customer = customer_schema.load(data, session=db.session)
-        db.session.add(customer)
+        customer_data = customer_schema.load(data)
+        customer = Customer(**customer_data)
+        db.session.add(Customer(**customer_data))
         db.session.commit()
         return customer_schema.dump(customer), 201
     except ValidationError as err:
         return jsonify(err.messages), 400
     except Exception as e:
         return jsonify({"message": str(e)}), 500
-
-@app.route('/customers', methods=['GET'])
+    
+@app.route('/customers', methods = ['GET'])
 def get_customers():
     customers = Customer.query.all()
     return customers_schema.dump(customers), 200
@@ -94,64 +99,66 @@ def get_customer(id):
     customer = Customer.query.get_or_404(id)
     return customer_schema.dump(customer), 200
 
-@app.route('/customer/<int:id>', methods=['PUT'])
+@app.route('/customer/<int:id>', methods = ['PUT'])
 def update_customer(id):
     customer = Customer.query.get_or_404(id)
     try:
         data = request.get_json()
-        updated_customer = customer_schema.load(data, instance=customer, session=db.session, partial=True)
+        updated_customer = customer_schema.load(data, isinstance=customer, partial=True)
         db.session.commit()
         return customer_schema.dump(updated_customer), 200
     except ValidationError as err:
         return jsonify(err.messages), 400
     except Exception as e:
         return jsonify({"message": str(e)}), 500
-
-@app.route('/customers/<int:id>', methods=['DELETE'])
+    
+@app.route('/customers/<int:id>', methods = ['DELETE'])
 def delete_customer(id):
     customer = Customer.query.get_or_404(id)
     db.session.delete(customer)
     db.session.commit()
-    return '', 204
+    return ' ', 204
 
-@app.route('/products', methods=['POST'])
+@app.route('/products', methods = ['POST'])
 def add_product():
     try:
         data = request.get_json()
-        new_product = product_schema.load(data, session=db.session)
-        db.session.add(new_product)
+        product_data = product_schema.load(data)
+        new_product = Product(**product_data)
+        db.session.add(Product(**product_data))
         db.session.commit()
         return product_schema.dump(new_product), 201
     except ValidationError as err:
         return jsonify(err.messages), 400
     except Exception as e:
         return jsonify({"message": str(e)}), 500
-
-@app.route('/product/<int:id>', methods=['GET'])
+    
+@app.route('/product/<int:id>', methods=['GET'])  # Single product
 def get_product(id):
     product = Product.query.get_or_404(id)
     return product_schema.dump(product), 200
 
-@app.route('/products', methods=['GET'])
+@app.route('/products', methods=['GET'])  # All products
 def get_products():
     products = Product.query.all()
-    return products_schema.dump(products), 200
+    return products_schema.dump(products, many=True), 200
 
-@app.route('/customer/<int:customer_id>/cart', methods=['GET'])
+@app.route('/customer/<int:customer_id>/cart', methods=['GET'])  # Get the cart
 def get_cart(customer_id):
     customer = Customer.query.get_or_404(customer_id)
-    order = customer.orders.filter_by().first()
+    order = customer.orders.filter_by().first()  # Get the open order (or create one)
     if order:
         return order_schema.dump(order), 200
     else:
-        return jsonify({"message": "Cart is empty"}), 200
+        return jsonify({"message": "Cart is empty"}), 200  # Or create a new order here
 
-@app.route('/product/<int:id>', methods=['DELETE'])
+    
+@app.route('/product/<int:id>', methods = ['DELETE'])
 def delete_products(id):
     product = Product.query.get_or_404(id)
     db.session.delete(product)
     db.session.commit()
-    return '', 204
+    return ' ', 204
 
 @app.route('/customers/<int:customer_id>/orders', methods=['POST'])
 def add_product_to_order(customer_id):
@@ -166,13 +173,13 @@ def add_product_to_order(customer_id):
         db.session.add(order)
         db.session.commit()
 
-    if product in order.products:
-        return jsonify({"message": "Product already in cart"}), 400
+    if product in order.products:  # Check if product is already in the order
+        return jsonify({"message": "Product already in cart"}), 400  # Or handle differently
     else:
         order.products.append(product)
         db.session.commit()
         return order_schema.dump(order), 201
-
+    
 @app.route('/customers/<int:customer_id>/orders/<int:product_id>', methods=['DELETE'])
 def remove_product_from_order(customer_id, product_id):
     customer = Customer.query.get_or_404(customer_id)
@@ -186,7 +193,8 @@ def remove_product_from_order(customer_id, product_id):
         db.session.commit()
         return '', 204
     else:
-        return jsonify({"message": "Product not in cart"}), 404
+        return jsonify({"message": "Product not in cart"}), 404    
+
 
 if __name__ == '__main__':
     with app.app_context():
